@@ -148,10 +148,34 @@ pub enum GraphicsCommand {
         triangle1_vertex_indexes: [u8; 3],
     },
 
+    /// Set and/or clear bits in the current geometry mode field.
+    ///
+    /// The resulting geometry mode becomes `((geometry_mode & (!clear_bits)) | set_bits)`.
+    ///
+    /// This is a merged opcode introduced in F3DEX2; the previous individual opcodes can be
+    /// translated into this one as follows:
+    ///
+    /// * SetGeometryMode(bits) = GeometryMode(bits, 0)
+    /// * ClearGeometryMode(bits) = GeometryMode(0, bits)
+    /// * LoadGeometryMode(bits) = GeometryMode(bits, 0xFFFFFF)
+    GeometryMode {
+        set_bits: u32,
+        clear_bits: u32,
+    },
+
+    /// Synchronizes the attribute interpolation pipe.
+    ///
+    /// Changes to rendering attributes are not necessarily immediate; if an attribute change is
+    /// followed by draw commands, the new attributes might only take effect midway through drawing.
+    /// This command ensures that processing the display list pauses until the attributes have been
+    /// internalized by the renderer.
+    RdpPipeSync,
+
     /// Marks the end of a display list.
     EndDisplayList,
 
-    /// Load `n` vertices from offset `v` in the asset identified by `hash` into the vertex buffer at offset `v0`.
+    /// Load `n` vertices from offset `v` in the asset identified by `hash` into the vertex buffer
+    /// at offset `v0`.
     ///
     /// This operation is an OTR extension.
     OtrVertexByHash {

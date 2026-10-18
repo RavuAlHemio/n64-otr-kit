@@ -44,6 +44,30 @@ pub fn decode_triangle2(expected_opcode: u8, hi: u32, lo: u32) -> Result<Graphic
     })
 }
 
+pub fn decode_pre2_set_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM
+    // O = opcode, M = mode bits to set
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xB7);
+    Ok(GraphicsCommand::GeometryMode {
+        set_bits: lo,
+        clear_bits: 0,
+    })
+}
+
+pub fn decode_pre2_clear_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM
+    // O = opcode, M = mode bits to clear
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xB6);
+    Ok(GraphicsCommand::GeometryMode {
+        set_bits: 0,
+        clear_bits: lo,
+    })
+}
+
 pub fn util_scale_triangle_vector_indexes(
     triangle_index: u8,
     raw_indexes: [u8; 3],

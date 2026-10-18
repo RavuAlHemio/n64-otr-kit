@@ -57,6 +57,29 @@ fn decode_triangle2(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_triangle2(0x06, hi, lo)
 }
 
+fn decode_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO CCCC CCCC CCCC CCCC CCCC CCCC
+    // lo: MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM
+    // O = opcode, C = mode bits *not* to clear, M = mode bits to set
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xD9);
+    let clear_bits = ((!hi) >> 0) & 0x00FFFFFF;
+    Ok(GraphicsCommand::GeometryMode {
+        set_bits: lo,
+        clear_bits,
+    })
+}
+
+fn decode_rdp_pipe_sync(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+    // O = opcode
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    let _ = lo;
+    assert_eq!(opcode, 0xE7);
+    Ok(GraphicsCommand::RdpPipeSync)
+}
+
 fn decode_end_display_list(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_end_display_list(0xDF, hi, lo)
 }
@@ -109,7 +132,9 @@ pub fn take_next_command<I: Iterator<Item = u32>>(source: &mut I) -> Result<Opti
                 .ok_or(Error::SourceEndedEarly)?;
             decode_otr_vertex_by_hash(hi, lo, hash_hi, hash_lo)
         },
+        0xD9 => decode_geometry_mode(hi, lo),
         0xDF => decode_end_display_list(hi, lo),
+        0xE7 => decode_rdp_pipe_sync(hi, lo),
         other => return Err(Error::UnsupportedOpcode { opcode: other }),
     }?;
     Ok(Some(command))

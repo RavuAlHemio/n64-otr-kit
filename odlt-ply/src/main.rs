@@ -170,6 +170,12 @@ fn main() {
                         triangles.push(vertexes);
                     }
                 },
+                GraphicsCommand::GeometryMode { .. } => {
+                    // not sure what to do with this information
+                },
+                GraphicsCommand::RdpPipeSync => {
+                    // no-op, we always react immediately
+                },
                 GraphicsCommand::EndDisplayList => {
                     // yay
                 },

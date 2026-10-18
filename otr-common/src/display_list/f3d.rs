@@ -59,6 +59,14 @@ fn decode_triangle1(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     })
 }
 
+fn decode_set_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_pre2_set_geometry_mode(hi, lo)
+}
+
+fn decode_clear_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_pre2_clear_geometry_mode(hi, lo)
+}
+
 fn decode_end_display_list(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_end_display_list(0xB8, hi, lo)
 }
@@ -109,6 +117,8 @@ pub fn take_next_command<I: Iterator<Item = u32>>(source: &mut I) -> Result<Opti
                 .ok_or(Error::SourceEndedEarly)?;
             decode_otr_vertex_by_hash(hi, lo, hash_hi, hash_lo)
         },
+        0xB6 => decode_clear_geometry_mode(hi, lo),
+        0xB7 => decode_set_geometry_mode(hi, lo),
         0xB8 => decode_end_display_list(hi, lo),
         0xBF => decode_triangle1(hi, lo),
         other => return Err(Error::UnsupportedOpcode { opcode: other }),
