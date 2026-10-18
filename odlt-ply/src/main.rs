@@ -77,7 +77,7 @@ fn main() {
 
         // calculate the output path
         let mut output_path = opts.output_dir.join(file_name);
-        output_path.add_extension(".ply");
+        output_path.add_extension("ply");
 
         let display_list_bs = {
             let mut display_list_file = match o2r.as_mut().by_index(i) {
