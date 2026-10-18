@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "odlt-ply",
+    "otex-png",
+    "otr-archive",
+    "otr-common",
+    "ovtx-ply",
+]
+resolver = "3"
+
+[workspace.dependencies]
+clap = { version = "4.6" }
+crc = { version = "3.4" }
+ordered-float = { version = "5.5" }
+png = { version = "0.18" }
+from-to-repr = { version = "0.2" }
+zip = { version = "9.0" }

@@ -1,0 +1,10 @@
+[package]
+name = "odlt-ply"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+otr-archive = { path = "../otr-archive" }
+otr-common = { path = "../otr-common" }
+zip = { workspace = true }
