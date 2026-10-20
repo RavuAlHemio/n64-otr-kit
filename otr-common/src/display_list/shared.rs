@@ -1,6 +1,29 @@
-use crate::display_list::{BitsPerPixel, BranchFlag, ColorFormat, Error, GraphicsCommand, Operand};
+use crate::display_list::move_word::MoveWordTarget;
+use crate::display_list::{
+    BitsPerPixel, BranchFlag, ColorFormat, Error, GbiVersion, GraphicsCommand, Operand, ScissorMode,
+};
 use crate::display_list::color_source::ColorSource;
 
+
+pub fn decode_pre2_sp_no_op(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+    // O = opcode
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0x00);
+    let _ = lo;
+    Ok(GraphicsCommand::SpNoOp)
+}
+
+pub fn decode_pre2_dp_no_op(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+    // O = opcode
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xC0);
+    let _ = lo;
+    Ok(GraphicsCommand::DpNoOp)
+}
 
 pub fn decode_branch_display_list(expected_opcode: u8, hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     // hi: OOOO OOOO FFFF FFFF xxxx xxxx xxxx xxxx
@@ -102,6 +125,18 @@ pub fn util_decode_pre2_matrix_opcode_push_load_projection(hi: u32) -> Result<(u
     }
 
     Ok((opcode, push, load, projection))
+}
+
+pub fn util_decode_pre2_move_memory_opcode_index_size(hi: u32) -> Result<(u8, u8, u16), Error> {
+    // hi: OOOO OOOO IIII IIII SSSS SSSS SSSS SSSS
+    // O = opcode, I = index, S = size
+
+    // we are opcode-agnostic; let the decode_* functions verify it
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    let index = u8::try_from((hi >> 16) & 0xFF).unwrap();
+    let size = u16::try_from((hi >> 0) & 0xFFFF).unwrap();
+
+    Ok((opcode, index, size))
 }
 
 pub fn decode_set_primitive_color(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
@@ -249,6 +284,63 @@ pub fn decode_otr_set_texture_image_by_hash(hi: u32, lo: u32, hash_hi: u32, hash
     })
 }
 
+pub fn decode_set_depth_image(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: IIII IIII IIII IIII IIII IIII IIII IIII
+    // I = image address
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xFE);
+    let image_address = lo;
+
+    Ok(GraphicsCommand::SetDepthImage {
+        image_address,
+    })
+}
+
+pub fn decode_set_color_image(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: see util_decode_set_texture_image_opcode_format_bpp_width
+    // lo: IIII IIII IIII IIII IIII IIII IIII IIII
+    // I = image address
+    let (
+        opcode,
+        color_format,
+        bits_per_pixel,
+        width,
+    ) = util_decode_set_texture_image_opcode_format_bpp_width(hi)?;
+    assert_eq!(opcode, 0xFF);
+    let image_address = lo;
+
+    Ok(GraphicsCommand::SetColorImage {
+        color_format,
+        bits_per_pixel,
+        width,
+        image_address,
+    })
+}
+
+pub fn decode_set_scissor_box(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxUU UUUU UUUU VVVV VVVV VVxx
+    // lo: xxxx xxMM xxXX XXXX XXXX YYYY YYYY YYxx
+    // I = image address, M = mode, U = upper-left X coordinate, V = upper-left Y coordinate,
+    // X = lower-right X coordinate, Y = lower-right Y coordinate
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xED);
+    let mode_u8 = u8::try_from((lo >> 24) & 0b11).unwrap();
+    let mode = ScissorMode::from_base_type(mode_u8);
+    let upper_left_x = u16::try_from((hi >> 12) & 0x3FF).unwrap();
+    let upper_left_y = u16::try_from((hi >>  2) & 0x3FF).unwrap();
+    let lower_right_x = u16::try_from((lo >> 12) & 0x3FF).unwrap();
+    let lower_right_y = u16::try_from((lo >>  2) & 0x3FF).unwrap();
+
+    Ok(GraphicsCommand::SetScissorBox {
+        mode,
+        upper_left_x,
+        upper_left_y,
+        lower_right_x,
+        lower_right_y,
+    })
+}
+
 pub fn decode_set_tile(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     // hi: OOOO OOOO FFFI IxNN NNNN NNNM MMMM MMMM
     // lo: xxxx xTTT PPPP CCAA AASS SSDD BBBB UUUU
@@ -381,6 +473,46 @@ pub fn decode_pre2_texture(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     })
 }
 
+pub fn decode_pre2_move_word(gbi_version: GbiVersion, hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO PPPP PPPP PPPP PPPP IIII IIII
+    // lo: DDDD DDDD DDDD DDDD DDDD DDDD DDDD DDDD
+    // O = opcode, P = offset (position), I = index, D = data
+
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xBC);
+    let index = u8::try_from((hi >> 0) & 0xFF).unwrap();
+    let offset = u16::try_from((hi >> 8) & 0xFFFF).unwrap();
+    let data = lo;
+
+    let target = MoveWordTarget::from_index_offset_data(gbi_version, index, offset, data);
+
+    Ok(GraphicsCommand::MoveWord {
+        target,
+        data,
+    })
+}
+
+pub fn decode_pre2_move_memory(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: see util_decode_pre2_move_memory_opcode_index_size
+    // lo: MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM
+    // M = memory location
+
+    let (
+        opcode,
+        index,
+        size,
+    ) = util_decode_pre2_move_memory_opcode_index_size(hi)?;
+    assert_eq!(opcode, 0x03);
+    let source_address = lo;
+
+    Ok(GraphicsCommand::MoveMemory {
+        size,
+        index,
+        offset: None,
+        source_address,
+    })
+}
+
 pub fn decode_load_block(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     // hi: OOOO OOOO SSSS SSSS SSSS TTTT TTTT TTTT
     // lo: xxxx xNNN LLLL LLLL LLLL CCCC CCCC CCCC
@@ -411,6 +543,58 @@ pub fn decode_rdp_load_sync(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> 
     let _ = lo;
     assert_eq!(opcode, 0xE6);
     Ok(GraphicsCommand::RdpLoadSync)
+}
+
+pub fn decode_fill_rectangle(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO XXXX XXXX XXxx YYYY YYYY YYxx
+    // lo: xxxx xxxx UUUU UUUU UUxx VVVV VVVV VVxx
+    // I = image address, M = mode, U = upper-left X coordinate, V = upper-left Y coordinate,
+    // X = lower-right X coordinate, Y = lower-right Y coordinate
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xF6);
+    let lower_right_x = u16::try_from((hi >> 14) & 0x3FF).unwrap();
+    let lower_right_y = u16::try_from((hi >>  2) & 0x3FF).unwrap();
+    let upper_left_x = u16::try_from((lo >> 14) & 0x3FF).unwrap();
+    let upper_left_y = u16::try_from((lo >>  2) & 0x3FF).unwrap();
+
+    Ok(GraphicsCommand::FillRectangle {
+        upper_left_x,
+        upper_left_y,
+        lower_right_x,
+        lower_right_y,
+    })
+}
+
+pub fn decode_pre2_otr_move_memory(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: see util_decode_pre2_move_memory_opcode_index_size
+    // lo: IIII IIII TTTT TTTT HHHH HHHH xxxx xxxx
+    // I = index for OTR, T = offset for OTR, H = "has offset?" for OTR (0 or 1)
+    //
+    // the asset is identified by hash_hi and hash_lo
+    // (CRC64 of the file path within the archive)
+
+    let (
+        opcode,
+        index,
+        size,
+    ) = util_decode_pre2_move_memory_opcode_index_size(hi)?;
+    assert_eq!(opcode, 0x42);
+    let otr_index = u8::try_from((lo >> 24) & 0xFF).unwrap();
+    let otr_offset = u16::try_from((lo >> 16) & 0xFF).unwrap();
+    let otr_has_offset = ((lo >> 8) & 0xFF) != 0;
+    let hash =
+        (u64::from(hash_hi) << 32)
+        | (u64::from(hash_lo) << 0)
+    ;
+    Ok(GraphicsCommand::OtrMoveMemoryByHash {
+        size,
+        index,
+        offset: None,
+        otr_index,
+        otr_offset,
+        otr_has_offset,
+        hash,
+    })
 }
 
 fn util_decode_set_texture_image_opcode_format_bpp_width(hi: u32) -> Result<(u8, ColorFormat, BitsPerPixel, u16), Error> {

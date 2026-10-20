@@ -66,6 +66,9 @@ fn process_display_list(
         };
 
         match command {
+            GraphicsCommand::DpNoOp|GraphicsCommand::SpNoOp => {
+                // I'll gladly do nothing
+            },
             GraphicsCommand::Vertex { v, n, v0 } => {
                 panic!(
                     "cannot load {} vertices into vertex buffer at position {} because I don't know where memory location {:#010X} is",
@@ -111,13 +114,20 @@ fn process_display_list(
                 |GraphicsCommand::SetColorCombine { .. }
                 |GraphicsCommand::SetEnvironmentColor { .. }
                 |GraphicsCommand::SetFillColor { .. }
+                |GraphicsCommand::SetColorImage { .. }
                 |GraphicsCommand::SetTextureImage { .. }
+                |GraphicsCommand::SetDepthImage { .. }
                 |GraphicsCommand::OtrSetTextureImageByHash { .. }
                 |GraphicsCommand::SetTile { .. }
                 |GraphicsCommand::SetTileSize { .. }
+                |GraphicsCommand::SetScissorBox { .. }
                 |GraphicsCommand::LoadBlock { .. }
                 |GraphicsCommand::Matrix { .. }
+                |GraphicsCommand::FillRectangle { .. }
+                |GraphicsCommand::MoveMemory { .. }
+                |GraphicsCommand::MoveWord { .. }
                 |GraphicsCommand::OtrMatrixByHash { .. }
+                |GraphicsCommand::OtrMoveMemoryByHash { .. }
             => {
                 // not sure what to do with this information
             },

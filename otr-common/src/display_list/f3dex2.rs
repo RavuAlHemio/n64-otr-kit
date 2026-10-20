@@ -1,4 +1,5 @@
-use crate::display_list::{Error, GraphicsCommand, Operand};
+use crate::display_list::{Error, GbiVersion, GraphicsCommand, Operand};
+use crate::display_list::move_word::MoveWordTarget;
 use crate::display_list::shared::util_scale_triangle_vector_indexes;
 
 
@@ -67,6 +68,44 @@ fn util_decode_set_other_mode(upper_half: bool, hi: u32, lo: u32) -> Result<Grap
     })
 }
 
+pub fn util_decode_move_memory_opcode_index_offset_size(hi: u32) -> Result<(u8, u8, u16, u16), Error> {
+    // hi: OOOO OOOO SSSS Sxxx OOOO OOOO IIII IIII
+    // O = opcode, I = index, S = size value, T = offset value
+    // size = (size_value + 1) * 8
+    // offset = offset_value * 8
+
+    // we are opcode-agnostic; let the decode_* functions verify it
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    let index = u8::try_from((hi >> 0) & 0xFF).unwrap();
+    let offset_value = u16::try_from((hi >> 8) & 0x00FF).unwrap();
+    let size_value = u16::try_from((hi >> 19) & 0b11111).unwrap();
+
+    let size = (size_value + 1) * 8;
+    let offset = offset_value * 8;
+
+    Ok((opcode, index, offset, size))
+}
+
+fn decode_sp_no_op(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+    // O = opcode
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xE0);
+    let _ = lo;
+    Ok(GraphicsCommand::SpNoOp)
+}
+
+fn decode_dp_no_op(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO xxxx xxxx xxxx xxxx xxxx xxxx
+    // lo: xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+    // O = opcode
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0x00);
+    let _ = lo;
+    Ok(GraphicsCommand::DpNoOp)
+}
+
 fn decode_vertex(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     // hi: see util_decode_vertex_n_v0
     // lo: VVVV VVVV VVVV VVVV VVVV VVVV VVVV VVVV
@@ -131,6 +170,10 @@ fn decode_matrix(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     })
 }
 
+fn decode_fill_rectangle(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_fill_rectangle(hi, lo)
+}
+
 fn decode_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     // hi: OOOO OOOO CCCC CCCC CCCC CCCC CCCC CCCC
     // lo: MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM
@@ -186,6 +229,18 @@ fn decode_otr_set_texture_image_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo:
     crate::display_list::shared::decode_otr_set_texture_image_by_hash(hi, lo, hash_hi, hash_lo)
 }
 
+fn decode_set_depth_image(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_depth_image(hi, lo)
+}
+
+fn decode_set_color_image(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_color_image(hi, lo)
+}
+
+fn decode_set_scissor_box(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_scissor_box(hi, lo)
+}
+
 fn decode_load_block(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_load_block(hi, lo)
 }
@@ -208,6 +263,47 @@ fn decode_set_tile(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
 
 fn decode_set_tile_size(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_set_tile_size(hi, lo)
+}
+
+fn decode_move_word(gbi_version: GbiVersion, hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: OOOO OOOO IIII IIII PPPP PPPP PPPP PPPP
+    // lo: DDDD DDDD DDDD DDDD DDDD DDDD DDDD DDDD
+    // O = opcode, P = offset (position), I = index, D = data
+
+    let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
+    assert_eq!(opcode, 0xDB);
+    let index = u8::try_from((hi >> 16) & 0xFF).unwrap();
+    let offset = u16::try_from((hi >> 0) & 0xFFFF).unwrap();
+    let data = lo;
+
+    let target = MoveWordTarget::from_index_offset_data(gbi_version, index, offset, data);
+
+    Ok(GraphicsCommand::MoveWord {
+        target,
+        data,
+    })
+}
+
+pub fn decode_move_memory(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: see util_decode_move_memory_opcode_index_offset_size
+    // lo: MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM
+    // M = memory location
+
+    let (
+        opcode,
+        index,
+        offset,
+        size,
+    ) = util_decode_move_memory_opcode_index_offset_size(hi)?;
+    assert_eq!(opcode, 0xDC);
+    let source_address = lo;
+
+    Ok(GraphicsCommand::MoveMemory {
+        size,
+        index,
+        offset: Some(offset),
+        source_address,
+    })
 }
 
 fn decode_rdp_pipe_sync(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
@@ -293,17 +389,52 @@ fn decode_otr_matrix_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Re
     })
 }
 
-pub fn take_next_command<I: Iterator<Item = u32>>(source: &mut I) -> Result<Option<GraphicsCommand>, Error> {
+fn decode_otr_move_memory(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: see util_decode_move_memory_opcode_index_offset_size
+    // lo: IIII IIII TTTT TTTT HHHH HHHH xxxx xxxx
+    // I = index for OTR, T = offset for OTR, H = "has offset?" for OTR (0 or 1)
+    //
+    // the asset is identified by hash_hi and hash_lo
+    // (CRC64 of the file path within the archive)
+
+    let (
+        opcode,
+        index,
+        offset,
+        size,
+    ) = util_decode_move_memory_opcode_index_offset_size(hi)?;
+    assert_eq!(opcode, 0x42);
+    let otr_index = u8::try_from((lo >> 24) & 0xFF).unwrap();
+    let otr_offset = u16::try_from((lo >> 16) & 0xFF).unwrap();
+    let otr_has_offset = ((lo >> 8) & 0xFF) != 0;
+    let hash =
+        (u64::from(hash_hi) << 32)
+        | (u64::from(hash_lo) << 0)
+    ;
+    Ok(GraphicsCommand::OtrMoveMemoryByHash {
+        size,
+        index,
+        offset: Some(offset),
+        otr_index,
+        otr_offset,
+        otr_has_offset,
+        hash,
+    })
+}
+
+pub fn take_next_command<I: Iterator<Item = u32>>(gbi_version: GbiVersion, source: &mut I) -> Result<Option<GraphicsCommand>, Error> {
     let Some(hi) = source.next() else { return Ok(None) };
     let lo = source.next()
         .ok_or(Error::SourceEndedEarly)?;
 
     let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
     let command = match opcode {
+        0x00 => decode_dp_no_op(hi, lo),
         0x01 => decode_vertex(hi, lo),
+        0x03 => decode_move_memory(hi, lo),
         0x05 => decode_triangle1(hi, lo),
         0x06 => decode_triangle2(hi, lo),
-        0x20|0x31|0x32|0x36 => {
+        0x20|0x31|0x32|0x36|0x42 => {
             // these ones need two more words
             let hash_hi = source.next()
                 .ok_or(Error::SourceEndedEarly)?;
@@ -314,26 +445,33 @@ pub fn take_next_command<I: Iterator<Item = u32>>(source: &mut I) -> Result<Opti
                 0x31 => decode_otr_branch_display_list_by_hash(hi, lo, hash_hi, hash_lo),
                 0x32 => decode_otr_vertex_by_hash(hi, lo, hash_hi, hash_lo),
                 0x36 => decode_otr_matrix_by_hash(hi, lo, hash_hi, hash_lo),
+                0x42 => decode_otr_move_memory(hi, lo, hash_hi, hash_lo),
                 _ => unreachable!(),
             }
         },
         0xD7 => decode_texture(hi, lo),
         0xD9 => decode_geometry_mode(hi, lo),
         0xDA => decode_matrix(hi, lo),
+        0xDB => decode_move_word(gbi_version, hi, lo),
         0xDE => decode_branch_display_list(hi, lo),
         0xDF => decode_end_display_list(hi, lo),
+        0xE0 => decode_sp_no_op(hi, lo),
         0xE2 => decode_set_other_mode_lo(hi, lo),
         0xE3 => decode_set_other_mode_hi(hi, lo),
         0xE6 => decode_rdp_load_sync(hi, lo),
         0xE7 => decode_rdp_pipe_sync(hi, lo),
+        0xED => decode_set_scissor_box(hi, lo),
         0xF2 => decode_set_tile_size(hi, lo),
         0xF3 => decode_load_block(hi, lo),
         0xF5 => decode_set_tile(hi, lo),
+        0xF6 => decode_fill_rectangle(hi, lo),
         0xF7 => decode_set_fill_color(hi, lo),
         0xFA => decode_set_primitive_color(hi, lo),
         0xFB => decode_set_environment_color(hi, lo),
         0xFC => decode_set_color_combine(hi, lo),
         0xFD => decode_set_texture_image(hi, lo),
+        0xFE => decode_set_depth_image(hi, lo),
+        0xFF => decode_set_color_image(hi, lo),
         other => return Err(Error::UnsupportedOpcode { opcode: other }),
     }?;
     Ok(Some(command))

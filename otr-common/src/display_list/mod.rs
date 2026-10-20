@@ -2,6 +2,7 @@ pub mod color_source;
 pub mod f3d;
 pub mod f3dex;
 pub mod f3dex2;
+pub mod move_word;
 pub(crate) mod shared;
 
 
@@ -12,6 +13,7 @@ use from_to_repr::from_to_other;
 
 use crate::common::Endianness;
 use crate::display_list::color_source::ColorSource;
+use crate::display_list::move_word::MoveWordTarget;
 
 
 #[derive(Debug)]
@@ -115,15 +117,51 @@ impl std::error::Error for Error {
 }
 
 
+/// The version of the Graphics Binary Interface (GBI) in use.
 #[derive(Clone, Copy, Debug)]
 #[from_to_other(base_type = u8, derive_compare = "as_int")]
 pub enum GbiVersion {
-    F3db = 0,
+    F3dBeta = 0,
     F3d = 1,
     F3dEx = 2,
-    F3dExB = 3,
+    F3dExBeta = 3,
     F3dEx2 = 4,
     Other(u8),
+}
+impl GbiVersion {
+    pub fn is_known(&self) -> bool {
+        match self {
+            Self::Other(_) => false,
+            _ => true,
+        }
+    }
+
+    /// Whether the GBI is F3D (beta or release).
+    pub fn is_f3d(&self) -> bool {
+        match self {
+            Self::F3d => true,
+            Self::F3dBeta => true,
+            _ => false,
+        }
+    }
+
+    /// Whether the GBI is F3DEx (beta or release).
+    pub fn is_f3dex(&self) -> bool {
+        match self {
+            Self::F3dEx => true,
+            Self::F3dExBeta => true,
+            _ => false,
+        }
+    }
+
+    /// Whether the GBI is a beta version (of F3D or F3DEx).
+    pub fn is_beta(&self) -> bool {
+        match self {
+            Self::F3dBeta => true,
+            Self::F3dExBeta => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -164,8 +202,23 @@ pub enum BitsPerPixel {
     Other(u8),
 }
 
+#[derive(Clone, Copy, Debug)]
+#[from_to_other(base_type = u8, derive_compare = "as_int")]
+pub enum ScissorMode {
+    NonInterlace = 0,
+    EvenInterlace = 2,
+    OddInterlace = 3,
+    Other(u8),
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GraphicsCommand {
+    /// Do nothing on the SP.
+    SpNoOp,
+
+    /// Do nothing on the DP.
+    DpNoOp,
+
     /// Load `n` vertices from memory at `v` into the vertex buffer at offset `v0`.
     Vertex {
         v: u32,
@@ -236,6 +289,14 @@ pub enum GraphicsCommand {
         max_mipmap_levels: u8,
         tile_number: u8,
         on: bool,
+    },
+
+    /// Draw a filled rectangle on the screen.
+    FillRectangle {
+        upper_left_x: u16,
+        upper_left_y: u16,
+        lower_right_x: u16,
+        lower_right_y: u16,
     },
 
     /// Set the color for drawing primitives.
@@ -329,9 +390,33 @@ pub enum GraphicsCommand {
         lower_right_t: u16,
     },
 
+    /// Set the box outside which no pixels will be rendered.
+    SetScissorBox {
+        mode: ScissorMode,
+        upper_left_x: u16,
+        upper_left_y: u16,
+        lower_right_x: u16,
+        lower_right_y: u16,
+    },
+
     /// Set the image that will be used for texture loading to the image at the given memory
     /// address.
     SetTextureImage {
+        color_format: ColorFormat,
+        bits_per_pixel: BitsPerPixel,
+        width: u16,
+        image_address: u32,
+    },
+
+    /// Set the image that will be used as the depth image during texture loading to the image at
+    /// the given memory address.
+    SetDepthImage {
+        image_address: u32,
+    },
+
+    /// Set the image that will be used as the color image during texture loading to the image at
+    /// the given memory address.
+    SetColorImage {
         color_format: ColorFormat,
         bits_per_pixel: BitsPerPixel,
         width: u16,
@@ -348,6 +433,20 @@ pub enum GraphicsCommand {
         upper_left_t: u16,
         lower_right_s: u16,
         t_change_per_scan_line: u16,
+    },
+
+    /// Move a word of data into DMEM.
+    MoveWord {
+        target: MoveWordTarget,
+        data: u32,
+    },
+
+    /// Move a block of data into DMEM from RAM.
+    MoveMemory {
+        size: u16,
+        index: u8,
+        offset: Option<u16>,
+        source_address: u32,
     },
 
     /// Branch to another display list in memory.
@@ -414,6 +513,21 @@ pub enum GraphicsCommand {
         load: bool,
         projection: bool,
     },
+
+    /// Move a block of data into DMEM from the asset with the given hash.
+    ///
+    /// This operation is an OTR extension.
+    OtrMoveMemoryByHash {
+        size: u16,
+        index: u8,
+        offset: Option<u16>,
+
+        otr_index: u8,
+        otr_offset: u16,
+        otr_has_offset: bool,
+
+        hash: u64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -470,23 +584,20 @@ impl DisplayListV0Header {
         // parse it out
         let mut word_iterator = words.iter().copied();
         let mut commands = Vec::with_capacity(words.len() / 2);
-        match self.gbi_version {
-            GbiVersion::F3d => {
-                while let Some(command) = crate::display_list::f3d::take_next_command(&mut word_iterator)? {
-                    commands.push(command);
-                }
-            },
-            GbiVersion::F3dEx => {
-                while let Some(command) = crate::display_list::f3dex::take_next_command(&mut word_iterator)? {
-                    commands.push(command);
-                }
-            },
-            GbiVersion::F3dEx2 => {
-                while let Some(command) = crate::display_list::f3dex2::take_next_command(&mut word_iterator)? {
-                    commands.push(command);
-                }
-            },
-            other => return Err(Error::UnsupportedGbiVersion { version: other }.into()),
+        if self.gbi_version.is_f3d() {
+            while let Some(command) = crate::display_list::f3d::take_next_command(self.gbi_version, &mut word_iterator)? {
+                commands.push(command);
+            }
+        } else if self.gbi_version.is_f3dex() {
+            while let Some(command) = crate::display_list::f3dex::take_next_command(self.gbi_version, &mut word_iterator)? {
+                commands.push(command);
+            }
+        } else if self.gbi_version == GbiVersion::F3dEx2 {
+            while let Some(command) = crate::display_list::f3dex2::take_next_command(self.gbi_version, &mut word_iterator)? {
+                commands.push(command);
+            }
+        } else {
+            return Err(Error::UnsupportedGbiVersion { version: self.gbi_version }.into());
         }
 
         Ok(commands)
