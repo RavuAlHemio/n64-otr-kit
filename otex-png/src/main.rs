@@ -119,7 +119,14 @@ fn main() {
         PixelFormat::R8G8B8A8 => {
             for chunk in data_buf.chunks(4) {
                 let value = resource_header.byte_order.u32_from_bytes(chunk);
-                image_data.extend(value.to_be_bytes());
+                let a = u8::try_from((value >> 24) & 0xFF).unwrap();
+                let b = u8::try_from((value >> 16) & 0xFF).unwrap();
+                let g = u8::try_from((value >>  8) & 0xFF).unwrap();
+                let r = u8::try_from((value >>  0) & 0xFF).unwrap();
+                image_data.push(r);
+                image_data.push(g);
+                image_data.push(b);
+                image_data.push(a);
             }
         },
         PixelFormat::R5G5B5A1 => {
