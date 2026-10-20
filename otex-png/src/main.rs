@@ -194,8 +194,12 @@ fn main() {
         PixelFormat::Other(other) => panic!("unsupported pixel format {}", other),
     }
 
-    writer.write_image_data(&image_data)
-        .expect("failed to write PNG data");
+    if let Err(e) = writer.write_image_data(&image_data) {
+        panic!(
+            "failed to write PNG data for {} (pixel format {:?}): {}",
+            opts.input_file.display(), texture_header.pixel_format, e,
+        );
+    }
     writer.finish()
         .expect("failed to finish writing PNG");
 
