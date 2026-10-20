@@ -1,3 +1,4 @@
+pub mod color_source;
 pub mod f3d;
 pub mod f3dex;
 pub mod f3dex2;
@@ -10,6 +11,7 @@ use std::io::Read;
 use from_to_repr::from_to_other;
 
 use crate::common::Endianness;
+use crate::display_list::color_source::ColorSource;
 
 
 #[derive(Debug)]
@@ -124,6 +126,44 @@ pub enum GbiVersion {
     Other(u8),
 }
 
+#[derive(Clone, Copy, Debug)]
+#[from_to_other(base_type = u8, derive_compare = "as_int")]
+pub enum BranchFlag {
+    /// Call the target.
+    ///
+    /// Once the target finishes executing, execution continues with the instruction after the call
+    /// instruction.
+    Call = 0,
+
+    /// Jump to the target.
+    ///
+    /// Once the target finishes executing, execution stops.
+    Jump = 1,
+
+    Other(u8),
+}
+
+#[derive(Clone, Copy, Debug)]
+#[from_to_other(base_type = u8, derive_compare = "as_int")]
+pub enum ColorFormat {
+    Rgba = 0,
+    Yuv = 1,
+    Palette = 2, // aka ColorIndexed (CI)
+    GrayscaleAlpha = 3, // aka IntensityAlpha (IA)
+    Grayscale = 4, // aka Intensity (I)
+    Other(u8),
+}
+
+#[derive(Clone, Copy, Debug)]
+#[from_to_other(base_type = u8, derive_compare = "as_int")]
+pub enum BitsPerPixel {
+    B4 = 0,
+    B8 = 1,
+    B16 = 2,
+    B32 = 3,
+    Other(u8),
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GraphicsCommand {
     /// Load `n` vertices from memory at `v` into the vertex buffer at offset `v0`.
@@ -131,6 +171,32 @@ pub enum GraphicsCommand {
         v: u32,
         n: u8,
         v0: u8,
+    },
+
+    /// Load a matrix from memory onto the matrix stack.
+    Matrix {
+        /// The memory location from which to load the matrix.
+        matrix: u32,
+
+        /// Whether to push the matrix on top of the matrix stack instead of replacing the topmost
+        /// element on the stack.
+        ///
+        /// If `true`, pushes the matrix up onto the matrix stack. If `false`, replaces the topmost
+        /// element on the matrix stack.
+        push: bool,
+
+        /// Whether to store the matrix directly instead of multiplying it with the topmost element
+        /// on the stack.
+        ///
+        /// If `true`, stores the matrix. If `false`, stores the product of this matrix (left
+        /// operand) multiplied by the topmost element on the matrix stack (right operand).
+        load: bool,
+
+        /// Whether to affect the projection matrix instead of the model view matrix.
+        ///
+        /// If `true`, the projection matrix is affected. If `false`, the model view matrix is
+        /// affected.
+        projection: bool,
     },
 
     /// Draw a triangle whose vertices are found in the vertex buffer at the given indexes.
@@ -163,13 +229,146 @@ pub enum GraphicsCommand {
         clear_bits: u32,
     },
 
-    /// Synchronizes the attribute interpolation pipe.
+    /// Set the texturing parameters.
+    TexturingParameters {
+        s_scale: u16,
+        t_scale: u16,
+        max_mipmap_levels: u8,
+        tile_number: u8,
+        on: bool,
+    },
+
+    /// Set the color for drawing primitives.
+    SetPrimitiveColor {
+        lod_minimum_value_clamp: u8,
+        lod_fraction: u8,
+        red: u8,
+        green: u8,
+        blue: u8,
+        alpha: u8,
+    },
+
+    /// Set settings for color combination.
+    SetColorCombine {
+        cycle_0_color_a: ColorSource,
+        cycle_0_color_b: ColorSource,
+        cycle_0_color_c: ColorSource,
+        cycle_0_color_d: ColorSource,
+        cycle_0_alpha_a: ColorSource,
+        cycle_0_alpha_b: ColorSource,
+        cycle_0_alpha_c: ColorSource,
+        cycle_0_alpha_d: ColorSource,
+        cycle_1_color_a: ColorSource,
+        cycle_1_color_b: ColorSource,
+        cycle_1_color_c: ColorSource,
+        cycle_1_color_d: ColorSource,
+        cycle_1_alpha_a: ColorSource,
+        cycle_1_alpha_b: ColorSource,
+        cycle_1_alpha_c: ColorSource,
+        cycle_1_alpha_d: ColorSource,
+    },
+
+    /// Set the color with which to fill.
+    SetFillColor {
+        color: u32,
+    },
+
+    /// Set the environment color value.
+    ///
+    /// The environment color is one of the possible inputs to the color combiner; see
+    /// [`SetColorCombine`](Self::SetColorCombine).
+    SetEnvironmentColor {
+        red: u8,
+        green: u8,
+        blue: u8,
+        alpha: u8,
+    },
+
+    /// Modifies bits in the "other mode" word of the RDP.
+    ///
+    /// Depending on `upper_half`, operates on the upper or the lower half of the "other mode" word.
+    /// Takes `length` bits, the lowest of which is specified with `shift`, and replaces them with
+    /// the corresponding (preshifted) bits in `data`.
+    ///
+    /// The operation is analogous to:
+    /// ```rust,ignore
+    /// let reg = if upper_half { &mut other_mode_upper } else { &mut other_mode_lower };
+    /// *reg = (*reg & (!(((1 << length) - 1) << shift))) | data;
+    /// ```
+    SetOtherMode {
+        upper_half: bool,
+        shift: u8,
+        length: u8,
+        data: u32,
+    },
+
+    /// Set up multi-tile texture modes.
+    SetTile {
+        color_format: ColorFormat,
+        bits_per_pixel: BitsPerPixel,
+        values_64bit_per_row: u16,
+        tmem_texture_offset: u16,
+        tile_descriptor_index: u8,
+        palette_index: u8,
+        clamp_t: bool,
+        mirror_t: bool,
+        mask_t: u8,
+        shift_t: u8,
+        clamp_s: bool,
+        mirror_s: bool,
+        mask_s: u8,
+        shift_s: u8,
+    },
+
+    /// Select the part of the texture which to tile.
+    SetTileSize {
+        tile_descriptor_index: u8,
+        upper_left_s: u16,
+        upper_left_t: u16,
+        lower_right_s: u16,
+        lower_right_t: u16,
+    },
+
+    /// Set the image that will be used for texture loading to the image at the given memory
+    /// address.
+    SetTextureImage {
+        color_format: ColorFormat,
+        bits_per_pixel: BitsPerPixel,
+        width: u16,
+        image_address: u32,
+    },
+
+    /// Loads a block of data into texture memory.
+    ///
+    /// The source data has previously been specified by [`SetTextureImage`](Self::SetTextureImage)
+    /// or a similar operation.
+    LoadBlock {
+        tile_number: u8,
+        upper_left_s: u16,
+        upper_left_t: u16,
+        lower_right_s: u16,
+        t_change_per_scan_line: u16,
+    },
+
+    /// Branch to another display list in memory.
+    BranchDisplayList {
+        display_list: u32,
+        branch_flag: BranchFlag,
+    },
+
+    /// Synchronize the attribute interpolation pipe.
     ///
     /// Changes to rendering attributes are not necessarily immediate; if an attribute change is
     /// followed by draw commands, the new attributes might only take effect midway through drawing.
     /// This command ensures that processing the display list pauses until the attributes have been
     /// internalized by the renderer.
     RdpPipeSync,
+
+    /// Synchronize the texture loading pipe.
+    ///
+    /// Texture loads are not necessarily immediate. This command pauses drawing to ensure that the
+    /// next draw command uses the newly loaded texture.
+    RdpLoadSync,
 
     /// Marks the end of a display list.
     EndDisplayList,
@@ -183,6 +382,37 @@ pub enum GraphicsCommand {
         n: u8,
         v0: u8,
         hash: u64,
+    },
+
+    /// Branch to the display list in the asset identified by `hash`.
+    ///
+    /// This operation is an OTR extension.
+    OtrBranchDisplayListByHash {
+        branch_flag: BranchFlag,
+        hash: u64,
+    },
+
+    /// Set the image that will be used for texture loading to the image in the asset with the given
+    /// hash.
+    ///
+    /// This operation is an OTR extension.
+    OtrSetTextureImageByHash {
+        color_format: ColorFormat,
+        bits_per_pixel: BitsPerPixel,
+        width: u16,
+        hash: u64,
+    },
+
+    /// Load a matrix from the asset identified by `hash` onto the matrix stack.
+    ///
+    /// The other operands are the same as in the [`Matrix`](Self::Matrix) variant.
+    ///
+    /// This operation is an OTR extension.
+    OtrMatrixByHash {
+        hash: u64,
+        push: bool,
+        load: bool,
+        projection: bool,
     },
 }
 

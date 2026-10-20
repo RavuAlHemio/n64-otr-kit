@@ -59,6 +59,24 @@ fn decode_triangle1(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     })
 }
 
+fn decode_matrix(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    let (
+        opcode,
+        push,
+        load,
+        projection,
+    ) = crate::display_list::shared::util_decode_pre2_matrix_opcode_push_load_projection(hi)?;
+    assert_eq!(opcode, 0x01);
+    let matrix = lo;
+
+    Ok(GraphicsCommand::Matrix {
+        matrix,
+        push,
+        load,
+        projection,
+    })
+}
+
 fn decode_set_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_pre2_set_geometry_mode(hi, lo)
 }
@@ -67,8 +85,68 @@ fn decode_clear_geometry_mode(hi: u32, lo: u32) -> Result<GraphicsCommand, Error
     crate::display_list::shared::decode_pre2_clear_geometry_mode(hi, lo)
 }
 
+fn decode_texture(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_pre2_texture(hi, lo)
+}
+
+fn decode_set_primitive_color(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_primitive_color(hi, lo)
+}
+
+fn decode_set_environment_color(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_environment_color(hi, lo)
+}
+
+fn decode_set_fill_color(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_fill_color(hi, lo)
+}
+
+fn decode_set_texture_image(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_texture_image(hi, lo)
+}
+
+fn decode_otr_set_texture_image_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_otr_set_texture_image_by_hash(hi, lo, hash_hi, hash_lo)
+}
+
+fn decode_load_block(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_load_block(hi, lo)
+}
+
+fn decode_set_color_combine(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_color_combine(hi, lo)
+}
+
+fn decode_set_other_mode_lo(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_pre2_set_other_mode(false, hi, lo)
+}
+
+fn decode_set_other_mode_hi(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_pre2_set_other_mode(true, hi, lo)
+}
+
+fn decode_set_tile(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_tile(hi, lo)
+}
+
+fn decode_set_tile_size(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_set_tile_size(hi, lo)
+}
+
+fn decode_rdp_load_sync(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_rdp_load_sync(hi, lo)
+}
+
+fn decode_branch_display_list(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_branch_display_list(0x06, hi, lo)
+}
+
 fn decode_end_display_list(hi: u32, lo: u32) -> Result<GraphicsCommand, Error> {
     crate::display_list::shared::decode_end_display_list(0xB8, hi, lo)
+}
+
+fn decode_otr_branch_display_list_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Result<GraphicsCommand, Error> {
+    crate::display_list::shared::decode_otr_branch_display_list_by_hash(hi, lo, hash_hi, hash_lo)
 }
 
 fn decode_otr_vertex_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Result<GraphicsCommand, Error> {
@@ -101,6 +179,33 @@ fn decode_otr_vertex_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Re
     })
 }
 
+fn decode_otr_matrix_by_hash(hi: u32, lo: u32, hash_hi: u32, hash_lo: u32) -> Result<GraphicsCommand, Error> {
+    // hi: see util_decode_pre2_matrix_opcode_push_load_projection
+    // lo: xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+    //
+    // the asset is identified by hash_hi and hash_lo
+    // (CRC64 of the file path within the archive)
+
+    let (
+        opcode,
+        push,
+        load,
+        projection,
+    ) = crate::display_list::shared::util_decode_pre2_matrix_opcode_push_load_projection(hi)?;
+    assert_eq!(opcode, 0x36);
+    let _ = lo;
+    let hash =
+        (u64::from(hash_hi) << 32)
+        | (u64::from(hash_lo) << 0)
+    ;
+    Ok(GraphicsCommand::OtrMatrixByHash {
+        hash,
+        push,
+        load,
+        projection,
+    })
+}
+
 pub fn take_next_command<I: Iterator<Item = u32>>(source: &mut I) -> Result<Option<GraphicsCommand>, Error> {
     let Some(hi) = source.next() else { return Ok(None) };
     let lo = source.next()
@@ -108,19 +213,39 @@ pub fn take_next_command<I: Iterator<Item = u32>>(source: &mut I) -> Result<Opti
 
     let opcode = u8::try_from((hi >> 24) & 0xFF).unwrap();
     let command = match opcode {
+        0x01 => decode_matrix(hi, lo),
         0x04 => decode_vertex(hi, lo),
-        0x32 => {
-            // this one needs two more words
+        0x06 => decode_branch_display_list(hi, lo),
+        0x20|0x31|0x32|0x36 => {
+            // these ones need two more words
             let hash_hi = source.next()
                 .ok_or(Error::SourceEndedEarly)?;
             let hash_lo = source.next()
                 .ok_or(Error::SourceEndedEarly)?;
-            decode_otr_vertex_by_hash(hi, lo, hash_hi, hash_lo)
+            match opcode {
+                0x20 => decode_otr_set_texture_image_by_hash(hi, lo, hash_hi, hash_lo),
+                0x31 => decode_otr_branch_display_list_by_hash(hi, lo, hash_hi, hash_lo),
+                0x32 => decode_otr_vertex_by_hash(hi, lo, hash_hi, hash_lo),
+                0x36 => decode_otr_matrix_by_hash(hi, lo, hash_hi, hash_lo),
+                _ => unreachable!(),
+            }
         },
         0xB6 => decode_clear_geometry_mode(hi, lo),
         0xB7 => decode_set_geometry_mode(hi, lo),
         0xB8 => decode_end_display_list(hi, lo),
+        0xB9 => decode_set_other_mode_lo(hi, lo),
+        0xBA => decode_set_other_mode_hi(hi, lo),
+        0xBB => decode_texture(hi, lo),
         0xBF => decode_triangle1(hi, lo),
+        0xE6 => decode_rdp_load_sync(hi, lo),
+        0xF2 => decode_set_tile_size(hi, lo),
+        0xF3 => decode_load_block(hi, lo),
+        0xF5 => decode_set_tile(hi, lo),
+        0xF7 => decode_set_fill_color(hi, lo),
+        0xFA => decode_set_primitive_color(hi, lo),
+        0xFB => decode_set_environment_color(hi, lo),
+        0xFC => decode_set_color_combine(hi, lo),
+        0xFD => decode_set_texture_image(hi, lo),
         other => return Err(Error::UnsupportedOpcode { opcode: other }),
     }?;
     Ok(Some(command))
