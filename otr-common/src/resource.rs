@@ -5,6 +5,7 @@ use crate::common::{Boolean, Endianness, Error};
 
 pub mod resource_type {
     pub const DISPLAY_LIST: u32 = 0x4F_44_4C_54; // ODLT
+    pub const SAMPLE: u32 = 0x41_55_46_43; // AUFC (probably AIFC with a typo)
     pub const TEXTURE: u32 = 0x4F_54_45_58; // OTEX
     pub const VERTEX: u32 = 0x4F_56_54_58; // OVTX
 }

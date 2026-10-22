@@ -59,6 +59,17 @@ macro_rules! impl_num_from_bytes {
         }
     };
 }
+macro_rules! impl_num_to_bytes {
+    ($name:ident, $type:ty) => {
+        pub fn $name(&self, value: $type) -> [u8; ::std::mem::size_of::<$type>()] {
+            match self {
+                Self::Little => value.to_le_bytes(),
+                Self::Big => value.to_be_bytes(),
+                other => panic!("unsupported endian type {:?}", other),
+            }
+        }
+    };
+}
 
 
 #[derive(Clone, Copy, Debug)]
@@ -88,9 +99,12 @@ impl Endianness {
 
     impl_num_from_bytes!(i16_from_bytes, i16);
     impl_num_from_bytes!(u16_from_bytes, u16);
+    impl_num_from_bytes!(i32_from_bytes, i32);
     impl_num_from_bytes!(u32_from_bytes, u32);
     impl_num_from_bytes!(u64_from_bytes, u64);
     impl_num_from_bytes!(f32_from_bytes, f32);
+
+    impl_num_to_bytes!(i16_to_bytes, i16);
 }
 
 #[derive(Clone, Copy, Debug)]

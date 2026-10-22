@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "aufc-wav",
     "odlt-ply",
     "otex-png",
     "otr-archive",
