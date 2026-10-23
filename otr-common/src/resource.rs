@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 
 use crate::common::{Boolean, Endianness, Error};
 
@@ -6,6 +6,7 @@ use crate::common::{Boolean, Endianness, Error};
 pub mod resource_type {
     pub const DISPLAY_LIST: u32 = 0x4F_44_4C_54; // ODLT
     pub const SAMPLE: u32 = 0x41_55_46_43; // AUFC (probably AIFC with a typo)
+    pub const SEQUENCE: u32 = 0x53_45_51_43; // SEQC
     pub const TEXTURE: u32 = 0x4F_54_45_58; // OTEX
     pub const VERTEX: u32 = 0x4F_56_54_58; // OVTX
 }
@@ -46,5 +47,20 @@ impl ResourceHeader {
             asset_id,
             padding1,
         })
+    }
+
+    pub fn write<W: Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        let endian_custom_pad_pad_buf = [
+            self.byte_order.to_base_type(),
+            self.is_custom.to_base_type(),
+            self.padding0[0],
+            self.padding0[1],
+        ];
+        writer.write_all(&endian_custom_pad_pad_buf)?;
+        self.byte_order.write_u32(self.resource_type, writer)?;
+        self.byte_order.write_u32(self.version, writer)?;
+        self.byte_order.write_u64(self.asset_id, writer)?;
+        writer.write_all(&self.padding1)?;
+        Ok(())
     }
 }

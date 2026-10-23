@@ -60,13 +60,18 @@ macro_rules! impl_num_from_bytes {
     };
 }
 macro_rules! impl_num_to_bytes {
-    ($name:ident, $type:ty) => {
+    ($name:ident, $write_name:ident, $type:ty) => {
         pub fn $name(&self, value: $type) -> [u8; ::std::mem::size_of::<$type>()] {
             match self {
                 Self::Little => value.to_le_bytes(),
                 Self::Big => value.to_be_bytes(),
                 other => panic!("unsupported endian type {:?}", other),
             }
+        }
+
+        pub fn $write_name<W: ::std::io::Write>(&self, value: $type, output: &mut W) -> Result<(), ::std::io::Error> {
+            let bytes = self.$name(value);
+            output.write_all(&bytes)
         }
     };
 }
@@ -104,7 +109,9 @@ impl Endianness {
     impl_num_from_bytes!(u64_from_bytes, u64);
     impl_num_from_bytes!(f32_from_bytes, f32);
 
-    impl_num_to_bytes!(i16_to_bytes, i16);
+    impl_num_to_bytes!(i16_to_bytes, write_i16, i16);
+    impl_num_to_bytes!(u32_to_bytes, write_u32, u32);
+    impl_num_to_bytes!(u64_to_bytes, write_u64, u64);
 }
 
 #[derive(Clone, Copy, Debug)]
