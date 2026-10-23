@@ -50,6 +50,7 @@ impl SampleV0Header {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SampleV0Data {
     // book_size: u32,
     pub book: Vec<i16>, // [i16; book_size]
