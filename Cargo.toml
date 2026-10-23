@@ -6,6 +6,7 @@ members = [
     "otr-archive",
     "otr-common",
     "ovtx-ply",
+    "seqex",
 ]
 resolver = "3"
 
@@ -14,5 +15,7 @@ clap = { version = "4.6" }
 crc = { version = "3.4" }
 ordered-float = { version = "5.5" }
 png = { version = "0.18" }
+serde = { version = "1.0" }
+serde_json = { version = "1.0" }
 from-to-repr = { version = "0.2" }
 zip = { version = "9.0" }

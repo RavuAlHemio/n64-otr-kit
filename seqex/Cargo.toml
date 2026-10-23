@@ -1,0 +1,10 @@
+[package]
+name = "seqex"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+otr-common = { path = "../otr-common" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
